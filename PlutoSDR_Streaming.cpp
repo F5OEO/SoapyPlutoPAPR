@@ -84,29 +84,57 @@ SoapySDR::Stream *SoapyPlutoSDR::setupStream(
 		const std::vector<size_t> &channels,
 		const SoapySDR::Kwargs &args )
 {
+	
 	//check the format
 	plutosdrStreamFormat streamFormat;
-	if (format == SOAPY_SDR_CF32) {
-		SoapySDR_log(SOAPY_SDR_INFO, "Using format CF32.");
-		streamFormat = PLUTO_SDR_CF32;
-	}
-	else if (format == SOAPY_SDR_CS16) {
-		SoapySDR_log(SOAPY_SDR_INFO, "Using format CS16.");
-		streamFormat = PLUTO_SDR_CS16;
-	}
-	else if (format == SOAPY_SDR_CS12) {
-		SoapySDR_log(SOAPY_SDR_INFO, "Using format CS12.");
-		streamFormat = PLUTO_SDR_CS12;
-	}
-	else if (format == SOAPY_SDR_CS8) {
-		SoapySDR_log(SOAPY_SDR_INFO, "Using format CS8.");
-		streamFormat = PLUTO_SDR_CS8;
-	}
-	else {
-		throw std::runtime_error(
-			"setupStream invalid format '" + format + "' -- Only CS8, CS12, CS16 and CF32 are supported by SoapyPlutoSDR module.");
-	}
+	if(!UseExtendedTezukaFeatures)
+	{
+		if (format == SOAPY_SDR_CF32) {
+			SoapySDR_log(SOAPY_SDR_INFO, "Using format CF32.");
+			streamFormat = PLUTO_SDR_CF32;
+		}
+		else if (format == SOAPY_SDR_CS16) {
+			SoapySDR_log(SOAPY_SDR_INFO, "Using format CS16.");
+			streamFormat = PLUTO_SDR_CS16;
+		}
+		else if (format == SOAPY_SDR_CS12) {
+			SoapySDR_log(SOAPY_SDR_INFO, "Using format CS12.");
+			streamFormat = PLUTO_SDR_CS12;
+		}
+		else if (format == SOAPY_SDR_CS8) {
+			
+			SoapySDR_log(SOAPY_SDR_INFO, "Using format CS8.");
+			streamFormat = PLUTO_SDR_CS8;
+			
+		}
+		
 
+		else {
+			throw std::runtime_error(
+				"setupStream invalid format '" + format + "' -- Only CS8, CS12, CS16 and CF32 are supported by SoapyPlutoSDR module.");
+		}
+	}
+	else
+	{
+		if (format == SOAPY_SDR_CF32) {
+			SoapySDR_log(SOAPY_SDR_INFO, "Using format CF32 Tezuka.");
+			streamFormat = PLUTO_SDR_CF32_TEZUKA;
+		}
+		else if (format == SOAPY_SDR_CS16) {
+			SoapySDR_log(SOAPY_SDR_INFO, "Using format CS16 Tezuka.");
+			streamFormat = PLUTO_SDR_CS16_TEZUKA;
+		}
+		else if (format == SOAPY_SDR_CS12) {
+			SoapySDR_log(SOAPY_SDR_INFO, "Using format CS12 Tezuka.");
+			streamFormat = PLUTO_SDR_CS12_TEZUKA;
+		}
+		else if (format == SOAPY_SDR_CS8) {
+			
+			SoapySDR_log(SOAPY_SDR_INFO, "Using format CS8 Tezuka.");
+			streamFormat = PLUTO_SDR_CS8_TEZUKA;
+			
+		}
+	}
 
 	if(direction == SOAPY_SDR_RX){
 
@@ -266,8 +294,18 @@ int SoapyPlutoSDR::readStreamStatus(
 		int &flags,
 		long long &timeNs,
 		const long timeoutUs)
-{
-	return SOAPY_SDR_NOT_SUPPORTED;
+{	
+	 uint32_t val = 0;
+	iio_device_reg_read(dev, 0x80000088, &val);
+            if (val & 4)
+            {
+                
+                iio_device_reg_write(dev, 0x80000088, val);
+				//return SOAPY_SDR_OVERFLOW;
+				return SOAPY_SDR_CORRUPTION;
+				
+            }
+	return 0;
 }
 
 void rx_streamer::set_buffer_size_by_samplerate(const size_t samplerate) {
@@ -275,7 +313,8 @@ void rx_streamer::set_buffer_size_by_samplerate(const size_t samplerate) {
     //Adapt buffer size (= MTU) as a tradeoff to minimize readStream overhead but at
     //the same time allow realtime applications. Keep it a power of 2 which seems to be better.
     //so try to target very roughly 60fps [30 .. 100] readStream calls / s for realtime applications.
-    int rounded_nb_samples_per_call = (int)::round(samplerate / 60.0);
+    int rounded_nb_samples_per_call = (int)::round(samplerate / 20.0);
+
 
     int power_of_2_nb_samples = 0;
 
@@ -285,6 +324,7 @@ void rx_streamer::set_buffer_size_by_samplerate(const size_t samplerate) {
 
     this->set_buffer_size(1 << power_of_2_nb_samples);
 
+	//this->set_buffer_size(rounded_nb_samples_per_call);
 	SoapySDR_logf(SOAPY_SDR_INFO, "Auto setting Buffer Size: %lu", (unsigned long)buffer_size);
 
     //Recompute MTU from buffer size change.
@@ -321,7 +361,15 @@ rx_streamer::rx_streamer(const iio_device *_dev, const plutosdrStreamFormat _for
 		struct iio_channel *chn = iio_device_get_channel(dev, i);
 		iio_channel_enable(chn);
 		channel_list.push_back(chn);
+		if((i==1) && (format == PLUTO_SDR_CF32_TEZUKA))
+		{
+			fprintf(stderr,"Tzeuka disable\n");
+			iio_channel_disable(chn);
+		}	
+
 	}
+
+	
 
 	if ( args.count( "bufflen" ) != 0 ){
 
@@ -397,7 +445,7 @@ size_t rx_streamer::recv(void * const *buffs,
 		// note that RX is 12 bits LSB aligned, i.e. fullscale 2048
 		uint8_t *src = (uint8_t *)iio_buffer_start(buf) + byte_offset;
 		int16_t const *src_ptr = (int16_t *)src;
-
+		
 		if (format == PLUTO_SDR_CS16) {
 
 			::memcpy(buffs[0], src_ptr, 2 * sizeof(int16_t) * items);
@@ -406,7 +454,7 @@ size_t rx_streamer::recv(void * const *buffs,
 		else if (format == PLUTO_SDR_CF32) {
 
 			float *dst_cf32 = (float *)buffs[0];
-
+			
 			for (size_t index = 0; index < items * 2; ++index) {
 				*dst_cf32 = float(*src_ptr) / 2048.0f;
 				src_ptr++;
@@ -431,13 +479,52 @@ size_t rx_streamer::recv(void * const *buffs,
 		else if (format == PLUTO_SDR_CS8) {
 
 			int8_t *dst_cs8 = (int8_t *)buffs[0];
+			
+				for (size_t index = 0; index < items * 2; index++) {
+					*dst_cs8 = int8_t(*src_ptr >> 4);
+					src_ptr++;
+					dst_cs8++;
+				}
+		}
+		else if (format == PLUTO_SDR_CS16_TEZUKA) {
 
-			for (size_t index = 0; index < items * 2; index++) {
-				*dst_cs8 = int8_t(*src_ptr >> 4);
-				src_ptr++;
-				dst_cs8++;
+			::memcpy(buffs[0], src_ptr, 2 * sizeof(int16_t) * items);
+
+		}
+		else if (format == PLUTO_SDR_CF32_TEZUKA) {
+
+			float *dst_cf32 = (float *)buffs[0];
+			int8_t const *src_ptr_i8 = (int8_t *)src;	
+			for (size_t index = 0; index < items * 2; ++index) {
+				//*dst_cf32 = float(*src_ptr) / 2048.0f;
+				*dst_cf32 = float(*(src_ptr_i8)) / 128.0f;
+
+				src_ptr_i8++;
+				dst_cf32++;
+			}
+
+		}
+		else if (format == PLUTO_SDR_CS12_TEZUKA) {
+
+			int8_t *dst_cs12 = (int8_t *)buffs[0];
+
+			for (size_t index = 0; index < items; ++index) {
+				int16_t i = *src_ptr++;
+				int16_t q = *src_ptr++;
+				// produce 24 bit (iiqIQQ), note the input is LSB aligned, scale=2048
+				// note: byte0 = i[7:0]; byte1 = {q[3:0], i[11:8]}; byte2 = q[11:4];
+				*dst_cs12++ = uint8_t(i);
+				*dst_cs12++ = uint8_t((q << 4) | ((i >> 8) & 0x0f));
+				*dst_cs12++ = uint8_t(q >> 4);
 			}
 		}
+		else if (format == PLUTO_SDR_CS8_TEZUKA) 
+		{
+			{
+				
+				::memcpy(buffs[0], src_ptr, 2* sizeof(int8_t) * items);
+			}
+		}	
 	}
 	else {
 		int16_t conv = 0, *conv_ptr = &conv;
@@ -471,12 +558,22 @@ size_t rx_streamer::recv(void * const *buffs,
 			else if (format == PLUTO_SDR_CS8) {
 
 				int8_t *dst_cs8 = (int8_t *)buffs[index];
-
-				for (size_t j = 0; j < items; ++j) {
-					iio_channel_convert(chn, conv_ptr, src);
-					src += buf_step;
-					dst_cs8[j * 2 + i] = int8_t(conv >> 4);
-				}
+		 
+					for (size_t j = 0; j < items; ++j) {
+						iio_channel_convert(chn, conv_ptr, src);
+						src += buf_step;
+						dst_cs8[j * 2 + i] = int8_t(conv >> 4);
+					}
+			}
+			else if (format == PLUTO_SDR_CS8_TEZUKA )
+			{
+					int8_t *dst_cs8 = (int8_t *)buffs[index];
+		 
+					for (size_t j = 0; j < items; ++j) {
+						iio_channel_convert(chn, conv_ptr, src);
+						src += buf_step;
+						dst_cs8[j + i] = int8_t(conv);
+					}
 			}
 
 		}
@@ -547,6 +644,8 @@ void rx_streamer::set_buffer_size(const size_t _buffer_size){
 		items_in_buffer = 0;
         byte_offset = 0;
 
+
+		iio_device_set_kernel_buffers_count(dev, 8);
 		buf = iio_device_create_buffer(dev, _buffer_size, false);
 		if (!buf) {
 			SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to create buffer!");
@@ -565,6 +664,7 @@ size_t rx_streamer::get_mtu_size() {
 // return wether can we optimize for single RX, 2 channel (I/Q), same endianess direct copy
 bool rx_streamer::has_direct_copy()
 {
+	return true; // Fixme
 	if (channel_list.size() != 2) // one RX with I + Q
 		return false;
 

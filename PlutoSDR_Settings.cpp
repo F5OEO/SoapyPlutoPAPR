@@ -44,6 +44,24 @@ SoapyPlutoSDR::SoapyPlutoSDR( const SoapySDR::Kwargs &args ):
 	this->setAntenna(SOAPY_SDR_RX, 0, "A_BALANCED");
 	this->setGainMode(SOAPY_SDR_RX, 0, false);
 	this->setAntenna(SOAPY_SDR_TX, 0, "A");
+	SoapySDR::Kwargs test =getHardwareInfo();
+	SoapySDR::Kwargs::iterator it;
+	if (test.count("fw_version") != 0)
+	{
+		//fprintf(stderr,"fw_version  %s\n", test.at("fw_version").c_str());
+		if(strncmp(test.at("fw_version").c_str(),"tezuka",strlen("tezuka"))==0)
+		{
+				fprintf(stderr,"Tezuka firmware\n");
+				UseExtendedTezukaFeatures=true;
+		}		
+		else
+		{
+			fprintf(stderr,"Standard firmware\n");
+			UseExtendedTezukaFeatures=false;
+		}	
+				
+	
+	}	
 }
 
 SoapyPlutoSDR::~SoapyPlutoSDR(void){
@@ -640,6 +658,8 @@ std::vector<double> SoapyPlutoSDR::listSampleRates( const int direction, const s
 	options.push_back(8e6);
 	options.push_back(9e6);
 	options.push_back(10e6);
+	options.push_back(12e6);
+	options.push_back(15e6);
 	return(options);
 
 }
@@ -703,7 +723,7 @@ double SoapyPlutoSDR::getBandwidth( const int direction, const size_t channel ) 
 std::vector<double> SoapyPlutoSDR::listBandwidths( const int direction, const size_t channel ) const
 {
 	std::vector<double> options;
-	options.push_back(0.2e6);
+	//options.push_back(0.2e6);
 	options.push_back(1e6);
 	options.push_back(2e6);
 	options.push_back(3e6);
@@ -714,6 +734,8 @@ std::vector<double> SoapyPlutoSDR::listBandwidths( const int direction, const si
 	options.push_back(8e6);
 	options.push_back(9e6);
 	options.push_back(10e6);
+	options.push_back(12e6);
+	options.push_back(15e6);
 	return(options);
 
 }

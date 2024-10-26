@@ -13,7 +13,11 @@ typedef enum plutosdrStreamFormat {
 	PLUTO_SDR_CF32,
 	PLUTO_SDR_CS16,
 	PLUTO_SDR_CS12,
-	PLUTO_SDR_CS8
+	PLUTO_SDR_CS8,
+	PLUTO_SDR_CF32_TEZUKA,
+	PLUTO_SDR_CS16_TEZUKA,
+	PLUTO_SDR_CS12_TEZUKA,
+	PLUTO_SDR_CS8_TEZUKA
 } plutosdrStreamFormat;
 
 class rx_streamer {
@@ -53,6 +57,7 @@ class rx_streamer {
 		const plutosdrStreamFormat format;
 		bool direct_copy;
         size_t mtu_size;
+		//bool UseExtendedTezukaFeatures=false;
 
 };
 
@@ -320,7 +325,6 @@ class SoapyPlutoSDR : public SoapySDR::Device{
 		bool decimation, interpolation;
 		std::unique_ptr<rx_streamer> rx_stream;
         std::unique_ptr<tx_streamer> tx_stream;
-
-        
+		bool UseExtendedTezukaFeatures=false;
 };
 
