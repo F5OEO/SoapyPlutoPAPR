@@ -361,9 +361,9 @@ rx_streamer::rx_streamer(const iio_device *_dev, const plutosdrStreamFormat _for
 		struct iio_channel *chn = iio_device_get_channel(dev, i);
 		iio_channel_enable(chn);
 		channel_list.push_back(chn);
-		if((i==1) && (format == PLUTO_SDR_CF32_TEZUKA))
+		if((i==1) && (format >= PLUTO_SDR_CF32_TEZUKA))
 		{
-			fprintf(stderr,"Tzeuka disable\n");
+			fprintf(stderr,"Tezuka disable\n");
 			iio_channel_disable(chn);
 		}	
 
@@ -816,6 +816,36 @@ int tx_streamer::send(	const void * const *buffs,
 			}
 		}
 		else if (format == PLUTO_SDR_CS8) {
+
+			int8_t *samples_cs8 = (int8_t *)buffs[index];
+
+			for (size_t j = 0; j < items; ++j) {
+				src = (int8_t)(samples_cs8[j*2+k] << 8);
+				iio_channel_convert_inverse(chn, dst_ptr, src_ptr);
+				dst_ptr += buf_step;
+			}
+		}
+		else if (format == PLUTO_SDR_CS16_TEZUKA) {
+
+			int16_t *samples_cs16 = (int16_t *)buffs[index];
+
+			for (size_t j = 0; j < items; ++j) {
+				src = samples_cs16[j*2+k]<<8;
+				iio_channel_convert_inverse(chn, dst_ptr, src_ptr);
+				dst_ptr += buf_step;
+			}
+		}
+		else if (format == PLUTO_SDR_CF32_TEZUKA) {
+
+			float *samples_cf32 = (float *)buffs[index];
+
+			for (size_t j = 0; j < items; ++j) {
+				src = (int16_t)(samples_cf32[j*2+k] * 32767.999f); // 32767.999f (0x46ffffff) will ensure better distribution
+				iio_channel_convert_inverse(chn, dst_ptr, src_ptr);
+				dst_ptr += buf_step;
+			}
+		}
+		else if (format == PLUTO_SDR_CS8_TEZUKA) {
 
 			int8_t *samples_cs8 = (int8_t *)buffs[index];
 
