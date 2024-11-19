@@ -1,4 +1,5 @@
 #include "SoapyPlutoSDR.hpp"
+#include <cstring>
 #ifdef HAS_AD9361_IIO
 #include <ad9361.h>
 #endif
