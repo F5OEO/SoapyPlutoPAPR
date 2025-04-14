@@ -42,7 +42,7 @@ class rx_streamer {
 
 	private:
 
-		void set_buffer_size(const size_t _buffer_size);
+		void set_buffer_size(const size_t _buffer_size,const size_t num_kernel);
         void set_mtu_size(const size_t mtu_size);
 
 		bool has_direct_copy();

@@ -26,6 +26,7 @@ std::vector<std::string> SoapyPlutoSDR::getStreamFormats(const int direction, co
 std::string SoapyPlutoSDR::getNativeStreamFormat(const int direction, const size_t channel, double &fullScale) const
 {
 	if (direction == SOAPY_SDR_RX) {
+		
 		fullScale = 2048; // RX expects 12 bit samples LSB aligned
 	}
 	else if (direction == SOAPY_SDR_TX) {
@@ -310,22 +311,22 @@ int SoapyPlutoSDR::readStreamStatus(
 
 void rx_streamer::set_buffer_size_by_samplerate(const size_t samplerate) {
 
-    //Adapt buffer size (= MTU) as a tradeoff to minimize readStream overhead but at
-    //the same time allow realtime applications. Keep it a power of 2 which seems to be better.
-    //so try to target very roughly 60fps [30 .. 100] readStream calls / s for realtime applications.
-    int rounded_nb_samples_per_call = (int)::round(samplerate / 20.0);
+	#define MAX_BUFF_SIZE 32000000LL
+    #define MAX_TOTAL_SIZE 60000000LL
+    #define MAX_CNT 64
 
+    size_t blockSize = samplerate/8LL; 
+    blockSize=(blockSize>>12)<<12;
+    if(blockSize>MAX_BUFF_SIZE) blockSize=MAX_BUFF_SIZE;
+    size_t  kernel_buffer_cnt=MAX_TOTAL_SIZE/(blockSize);
+    if(kernel_buffer_cnt>MAX_CNT) kernel_buffer_cnt=MAX_CNT;
+    
 
-    int power_of_2_nb_samples = 0;
-
-    while (rounded_nb_samples_per_call > (1 << power_of_2_nb_samples)) {
-        power_of_2_nb_samples++;
-    }
-
-    this->set_buffer_size(1 << power_of_2_nb_samples);
+	blockSize=blockSize/4;
+    this->set_buffer_size(blockSize,kernel_buffer_cnt);
 
 	//this->set_buffer_size(rounded_nb_samples_per_call);
-	SoapySDR_logf(SOAPY_SDR_INFO, "Auto setting Buffer Size: %lu", (unsigned long)buffer_size);
+	SoapySDR_logf(SOAPY_SDR_INFO, "Auto setting Buffer Size: %lu with %d kernel ", (unsigned long)blockSize,kernel_buffer_cnt);
 
     //Recompute MTU from buffer size change.
     //We always set MTU size = Buffer Size.
@@ -363,7 +364,7 @@ rx_streamer::rx_streamer(const iio_device *_dev, const plutosdrStreamFormat _for
 		channel_list.push_back(chn);
 		if((i==1) && (format >= PLUTO_SDR_CF32_TEZUKA))
 		{
-			fprintf(stderr,"Tezuka disable\n");
+			fprintf(stderr,"Tezuka CS8 input\n");
 			iio_channel_disable(chn);
 		}	
 
@@ -377,7 +378,7 @@ rx_streamer::rx_streamer(const iio_device *_dev, const plutosdrStreamFormat _for
 		{
 			size_t bufferLength = std::stoi(args.at("bufflen"));
 			if (bufferLength > 0)
-				this->set_buffer_size(bufferLength);
+				this->set_buffer_size(bufferLength,8);
 		}
 		catch (const std::invalid_argument &){}
 
@@ -488,7 +489,16 @@ size_t rx_streamer::recv(void * const *buffs,
 		}
 		else if (format == PLUTO_SDR_CS16_TEZUKA) {
 
-			::memcpy(buffs[0], src_ptr, 2 * sizeof(int16_t) * items);
+			//::memcpy(buffs[0], src_ptr, 2 * sizeof(int16_t) * items);
+			int16_t *dst_cs16 = (int16_t *)buffs[0];
+			int8_t const *src_ptr_i8 = (int8_t *)src;	
+			for (size_t index = 0; index < items * 2; ++index) {
+				//*dst_cf32 = float(*src_ptr) / 2048.0f;
+				*dst_cs16 = int16_t(*(src_ptr_i8)) << 8 ;
+
+				src_ptr_i8++;
+				dst_cs16++;
+			}
 
 		}
 		else if (format == PLUTO_SDR_CF32_TEZUKA) {
@@ -629,7 +639,7 @@ int rx_streamer::stop(const int flags,
 
 }
 
-void rx_streamer::set_buffer_size(const size_t _buffer_size){
+void rx_streamer::set_buffer_size(const size_t _buffer_size,const size_t num_kernel){
 
 	if (!buf || this->buffer_size != _buffer_size) {
         //cancel first
@@ -645,7 +655,7 @@ void rx_streamer::set_buffer_size(const size_t _buffer_size){
         byte_offset = 0;
 
 
-		iio_device_set_kernel_buffers_count(dev, 8);
+		iio_device_set_kernel_buffers_count(dev, num_kernel);
 		buf = iio_device_create_buffer(dev, _buffer_size, false);
 		if (!buf) {
 			SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to create buffer!");
