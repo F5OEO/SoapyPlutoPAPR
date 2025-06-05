@@ -6,7 +6,7 @@
 #include <iterator>
 #include <algorithm>
 #include <chrono>
-
+ #include <unistd.h>
 //TODO: Need to be a power of 2 for maximum efficiency ?
 # define DEFAULT_RX_BUFFER_SIZE (1 << 16)
 
@@ -223,6 +223,9 @@ int SoapyPlutoSDR::activateStream(
         return this->rx_stream->start(flags, timeNs, numElems);
     }
 
+	 
+    
+
     return 0;
 }
 
@@ -296,16 +299,21 @@ int SoapyPlutoSDR::readStreamStatus(
 		long long &timeNs,
 		const long timeoutUs)
 {	
+	/*
 	 uint32_t val = 0;
-	iio_device_reg_read(dev, 0x80000088, &val);
+				
+			iio_device_reg_read(rx_dev, 0x80000088, &val);
             if (val & 4)
             {
                 
-                iio_device_reg_write(dev, 0x80000088, val);
+                iio_device_reg_write(rx_dev, 0x80000088, val);
+				//SoapySDR_logf(SOAPY_SDR_INFO, "Rx Overflow !");
 				//return SOAPY_SDR_OVERFLOW;
-				return SOAPY_SDR_CORRUPTION;
+				return SOAPY_SDR_UNDERFLOW;
+				//return SOAPY_SDR_CORRUPTION;
 				
             }
+	*/		
 	return 0;
 }
 
@@ -713,17 +721,48 @@ tx_streamer::tx_streamer(const iio_device *_dev, const plutosdrStreamFormat _for
 	for (i = 0; i < channelIDs.size() * 2; i++) {
 		iio_channel *chn = iio_device_get_channel(dev, i);
 		iio_channel_enable(chn);
+		if((i==1) && (format >= PLUTO_SDR_CF32_TEZUKA))
+		{
+			fprintf(stderr,"Tezuka TX CS8 output\n");
+			iio_channel_disable(chn);
+		}
+		
+		
 		channel_list.push_back(chn);
 	}
+	
+	if ( args.count( "bufflen" ) != 0 ){
 
-	buf_size = 4096;
-	items_in_buf = 0;
-	buf = iio_device_create_buffer(dev, buf_size, false);
+		try
+		{
+			
+			size_t bufferLength = std::stoi(args.at("bufflen"));
+			fprintf(stderr,"Tx buflen %d\n",bufferLength);
+			if (bufferLength > 0)
+				this->set_buffer_size(bufferLength,8);
+		}
+		catch (const std::invalid_argument &){}
+
+	}else{
+
+		long long samplerate;
+		
+		iio_channel_attr_read_longlong(iio_device_find_channel(dev, "voltage0", true),"sampling_frequency",&samplerate);
+		fprintf(stderr,"Tx SampleRate %d\n",samplerate);
+		this->set_buffer_size_by_samplerate(samplerate);
+
+	}
+
+
+	//buf_size = 4096;
+	//items_in_buf = 0;
+	/*
+	buf = iio_device_create_buffer(dev, buffer_size, false);
 	if (!buf) {
 		SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to create buffer!");
 		throw std::runtime_error("Unable to create buffer!");
 	}
-
+	*/
 	direct_copy = has_direct_copy();
 
 	SoapySDR_logf(SOAPY_SDR_INFO, "Has direct TX copy: %d", (int)direct_copy);
@@ -747,139 +786,70 @@ int tx_streamer::send(	const void * const *buffs,
 
 {
     if (!buf) {
+		fprintf(stderr,"erro buf\n");
         return 0;
     }
-
-	size_t items = std::min(buf_size - items_in_buf, numElems);
-
+	//fprintf(stderr,"Num elets cs16 tezuka %d\n",numElems);
+	size_t items = std::min(buffer_size - items_in_buffer, numElems);
+	//size_t items = numElems;
 	int16_t src = 0;
 	int16_t const *src_ptr = &src;
-	ptrdiff_t buf_step = iio_buffer_step(buf); //in bytes
+	
+	
+	if (format == PLUTO_SDR_CS16) {
+			int16_t *dst_ptr = (int16_t *)iio_buffer_start(buf)+items_in_buffer*2 ;
+			
+			int16_t *samples_cs16 = (int16_t *)buffs[0];
 
-	if (direct_copy && format == PLUTO_SDR_CS16) {
-		// optimize for single TX, 2 channel (I/Q), same endianess direct copy
-		int16_t *dst_ptr = (int16_t *)iio_buffer_start(buf) + items_in_buf * 2;
-		memcpy(dst_ptr, buffs[0], 2 * sizeof(int16_t) * items);
-	}
-	else if (direct_copy && format == PLUTO_SDR_CS12) {
+			for (size_t j = 0; j < items; j++)
+			{
+				 
+				dst_ptr[j]=(samples_cs16[j*2]);
+				dst_ptr[j+1]=(samples_cs16[j*2+1]);
+				//dst_ptr[j]=((samples_cs16[j*2])>>8)|((samples_cs16[j*2])&0xFF)<<8;
+				//dst_ptr[j+1]=((samples_cs16[j*2+1])>>8)|((samples_cs16[j*2+1])&0xFF)<<8;	
 
-		int16_t *dst_ptr = (int16_t *)iio_buffer_start(buf) + items_in_buf * 2;
-		uint8_t const *samples_cs12 = (uint8_t *)buffs[0];
-
-		for (size_t index = 0; index < items; ++index) {
-			// consume 24 bit (iiqIQQ)
-			uint16_t src0 = uint16_t(*(samples_cs12++));
-			uint16_t src1 = uint16_t(*(samples_cs12++));
-			uint16_t src2 = uint16_t(*(samples_cs12++));
-			// produce 2x 16 bit, note the output is MSB aligned, scale=32768
-			// note: byte0 = i[11:4]; byte1 = {q[7:4], i[15:12]}; byte2 = q[15:8];
-			*dst_ptr = int16_t((src1 << 12) | (src0 << 4));
-			dst_ptr++;
-			*dst_ptr = int16_t((src2 << 8) | (src1 & 0xf0));
-			dst_ptr++;
-		}
-	}
-	else if (direct_copy && format == PLUTO_SDR_CS8) {
-
-		int16_t *dst_ptr = (int16_t *)iio_buffer_start(buf) + items_in_buf * 2;
-		int8_t const *samples_cs8 = (int8_t *)buffs[0];
-
-		for (size_t index = 0; index < items * 2; ++index) {
-			// consume (2x) 8bit (IQ)
-			// produce (2x) 16 bit, note the output is MSB aligned, scale=32768
-			*dst_ptr = int16_t(*samples_cs8) << 8;
-			samples_cs8++;
-			dst_ptr++;
-		}
-	}
-	else if (format == PLUTO_SDR_CS12) {
-		SoapySDR_logf(SOAPY_SDR_ERROR, "CS12 not available with this endianess or channel layout");
-		throw std::runtime_error("CS12 not available with this endianess or channel layout");
-	}
-	else
-
-	for (unsigned int k = 0; k < channel_list.size(); k++) {
-		iio_channel *chn = channel_list[k];
-		unsigned int index = k / 2;
-
-		uint8_t *dst_ptr = (uint8_t *)iio_buffer_first(buf, chn) + items_in_buf * buf_step;
-
-		// note that TX expects samples MSB aligned, unlike RX which is LSB aligned
-		if (format == PLUTO_SDR_CS16) {
-
-			int16_t *samples_cs16 = (int16_t *)buffs[index];
-
-			for (size_t j = 0; j < items; ++j) {
-				src = samples_cs16[j*2+k];
-				iio_channel_convert_inverse(chn, dst_ptr, src_ptr);
-				dst_ptr += buf_step;
 			}
+			
+			
 		}
-		else if (format == PLUTO_SDR_CF32) {
 
-			float *samples_cf32 = (float *)buffs[index];
+	 if (format == PLUTO_SDR_CS16_TEZUKA) {
+			//fprintf(stderr,"Num elets cs16 tezuka %d\n",numElems);
+			
+			int8_t *dst_ptr = (int8_t *)iio_buffer_start(buf)+items_in_buffer*2 ;
+			//dst_ptr+=numElems*2;
+			int16_t *samples_cs16 = (int16_t *)buffs[0];
 
-			for (size_t j = 0; j < items; ++j) {
-				src = (int16_t)(samples_cf32[j*2+k] * 32767.999f); // 32767.999f (0x46ffffff) will ensure better distribution
-				iio_channel_convert_inverse(chn, dst_ptr, src_ptr);
-				dst_ptr += buf_step;
+			for (size_t j = 0; j < items; j++)
+			{
+				
+				
+				//dst_ptr[j]=(samples_cs16[j*2])>>8;
+				//dst_ptr[j+1]=(samples_cs16[j*2+1])>>8;
+
+				dst_ptr[j]=(samples_cs16[j*2])>>8;
+				dst_ptr[j+1]=(samples_cs16[j*2+1])>>8;
+
 			}
-		}
-		else if (format == PLUTO_SDR_CS8) {
-
-			int8_t *samples_cs8 = (int8_t *)buffs[index];
-
-			for (size_t j = 0; j < items; ++j) {
-				src = (int8_t)(samples_cs8[j*2+k] << 8);
-				iio_channel_convert_inverse(chn, dst_ptr, src_ptr);
-				dst_ptr += buf_step;
-			}
-		}
-		else if (format == PLUTO_SDR_CS16_TEZUKA) {
-
-			int16_t *samples_cs16 = (int16_t *)buffs[index];
-
-			for (size_t j = 0; j < items; ++j) {
-				src = samples_cs16[j*2+k]<<8;
-				iio_channel_convert_inverse(chn, dst_ptr, src_ptr);
-				dst_ptr += buf_step;
-			}
-		}
-		else if (format == PLUTO_SDR_CF32_TEZUKA) {
-
-			float *samples_cf32 = (float *)buffs[index];
-
-			for (size_t j = 0; j < items; ++j) {
-				src = (int16_t)(samples_cf32[j*2+k] * 32767.999f); // 32767.999f (0x46ffffff) will ensure better distribution
-				iio_channel_convert_inverse(chn, dst_ptr, src_ptr);
-				dst_ptr += buf_step;
-			}
-		}
-		else if (format == PLUTO_SDR_CS8_TEZUKA) {
-
-			int8_t *samples_cs8 = (int8_t *)buffs[index];
-
-			for (size_t j = 0; j < items; ++j) {
-				src = (int16_t)(samples_cs8[j*2+k] << 8);
-				iio_channel_convert_inverse(chn, dst_ptr, src_ptr);
-				dst_ptr += buf_step;
-			}
-		}
-	}
-
-	items_in_buf += items;
-
-	if (items_in_buf == buf_size || (flags & SOAPY_SDR_END_BURST && numElems == items)) {
-		int ret = send_buf();
-
-		if (ret < 0) {
-			return SOAPY_SDR_ERROR;
+			
+			
 		}
 
-		if ((size_t)ret != buf_size) {
-			return SOAPY_SDR_ERROR;
-		}
-	}
+	items_in_buffer+=items;
+	
+	if(items_in_buffer==buffer_size)
+	{
+		//int nbbyte= iio_buffer_push_partial(buf,items_in_buffer);
+		//fprintf(stderr,"Push Num numelement %d/%d\n",items_in_buffer,buffer_size);
+		
+		int nbbyte= iio_buffer_push(buf);
+		//fprintf(stderr,"Num writtend %d\n",nbbyte);
+
+		items_in_buffer=0;
+		if(items!=numElems) fprintf(stderr,"Buffer is not aligned\n");
+	}	
+	
 
 	return items;
 
@@ -896,17 +866,18 @@ int tx_streamer::send_buf()
         return 0;
     }
 
-	if (items_in_buf > 0) {
-		if (items_in_buf < buf_size) {
+	if (items_in_buffer > 0) {
+		fprintf(stderr,"items_in_buffer %d\n",items_in_buffer);
+		if (items_in_buffer < buffer_size) {
 			ptrdiff_t buf_step = iio_buffer_step(buf);
-			uint8_t *buf_ptr = (uint8_t *)iio_buffer_start(buf) + items_in_buf * buf_step;
+			uint8_t *buf_ptr = (uint8_t *)iio_buffer_start(buf) + items_in_buffer * buf_step;
 			uint8_t *buf_end = (uint8_t *)iio_buffer_end(buf);
 
 			memset(buf_ptr, 0, buf_end - buf_ptr);
 		}
 
 		ssize_t ret = iio_buffer_push(buf);
-		items_in_buf = 0;
+		items_in_buffer = 0;
 
 		if (ret < 0) {
 			return ret;
@@ -923,6 +894,8 @@ int tx_streamer::send_buf()
 bool tx_streamer::has_direct_copy()
 {
 
+	return true;
+	/*
 	if (channel_list.size() != 2) // one TX with I/Q
 		return false;
 
@@ -938,5 +911,73 @@ bool tx_streamer::has_direct_copy()
 	iio_channel_convert_inverse(channel_list[0], &test_dst, (const void *)&test_src);
 
 	return test_src == test_dst;
+	*/
 
+}
+
+void tx_streamer::set_buffer_size(const size_t _buffer_size,const size_t num_kernel){
+
+	if (!buf || this->buffer_size != _buffer_size) {
+        //cancel first
+        if (buf) {
+            iio_buffer_cancel(buf);
+        }
+        //then destroy
+        if (buf) {
+            iio_buffer_destroy(buf);
+        }
+
+		items_in_buffer = 0;
+        //byte_offset = 0;
+
+
+		iio_device_set_kernel_buffers_count(this->dev, num_kernel);
+		buf = iio_device_create_buffer(this->dev, _buffer_size, false);
+		if (!buf) {
+			SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to create buffer!");
+			throw std::runtime_error("Unable to create buffer!\n");
+		}
+
+	}
+
+	this->buffer_size=_buffer_size;
+}
+
+size_t tx_streamer::get_mtu_size() {
+    return this->mtu_size;
+}
+
+
+void tx_streamer::set_buffer_size_by_samplerate(const size_t samplerate) {
+
+	#define MAX_BUFF_SIZE 32000000LL
+    #define MAX_TOTAL_SIZE 60000000LL
+    #define MAX_CNT 64
+
+    //size_t blockSize = samplerate/8LL; 
+	size_t blockSize = 1024*1280;
+    blockSize=(blockSize>>12)<<12;
+    if(blockSize>MAX_BUFF_SIZE) blockSize=MAX_BUFF_SIZE;
+    size_t  kernel_buffer_cnt=MAX_TOTAL_SIZE/(blockSize);
+    if(kernel_buffer_cnt>MAX_CNT) kernel_buffer_cnt=MAX_CNT;
+    
+
+	blockSize=blockSize/4;
+    this->set_buffer_size(blockSize,kernel_buffer_cnt);
+
+	//this->set_buffer_size(rounded_nb_samples_per_call);
+	SoapySDR_logf(SOAPY_SDR_INFO, "Auto setting Buffer Size: %lu with %d kernel ", (unsigned long)blockSize,kernel_buffer_cnt);
+
+    //Recompute MTU from buffer size change.
+    //We always set MTU size = Buffer Size.
+    //On buffer size adjustment to sample rate,
+    //MTU can be changed accordingly safely here.
+    set_mtu_size(this->buffer_size);
+}
+
+void tx_streamer::set_mtu_size(const size_t mtu_size) {
+
+    this->mtu_size = mtu_size;
+
+    SoapySDR_logf(SOAPY_SDR_INFO, "Set MTU Size: %lu", (unsigned long)mtu_size);
 }

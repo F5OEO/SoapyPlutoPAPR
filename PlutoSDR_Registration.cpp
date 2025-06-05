@@ -11,8 +11,8 @@ static std::vector<SoapySDR::Kwargs> results;
 static std::vector<SoapySDR::Kwargs> find_PlutoSDR(const SoapySDR::Kwargs &args) {
 
 	if (!results.empty())
-		return results;
-
+		results.clear();
+	
 	ssize_t ret = 0;
 	iio_context *ctx = nullptr;
 	iio_scan_context *scan_ctx;
@@ -91,6 +91,11 @@ static std::vector<SoapySDR::Kwargs> find_PlutoSDR(const SoapySDR::Kwargs &args)
 			continue;
 		}
 
+		if (args.count("tezuka_format") != 0)
+		{
+			options["tezuka_format"]=args.at("tezuka_format"); //CS8 or CS16
+		}
+
 		options["device"] = "PlutoSDR";
 		if (ret == 0) {
 			iio_context_info_list_free(info);
@@ -113,10 +118,11 @@ static std::vector<SoapySDR::Kwargs> find_PlutoSDR(const SoapySDR::Kwargs &args)
 
 		} else {
 			for (int i = 0; i < ret; i++) {
+				
 				ctx = iio_create_context_from_uri(iio_context_info_get_uri(info[i]));
 				if (ctx != nullptr) {
 					options["uri"] = std::string(iio_context_info_get_uri(info[i]));
-
+					options["device"]=  std::string(iio_context_info_get_description(info[i]));
 					// check if discovered libiio context can be a PlutoSDR (and not some other sensor),
           // it must contain "ad9361-phy", "cf-ad9361-lpc" and "cf-ad9361-dds-core-lpc" devices
 					iio_device *dev = iio_context_find_device(ctx, "ad9361-phy");
@@ -151,4 +157,4 @@ static SoapySDR::Device *make_PlutoSDR(const SoapySDR::Kwargs &args)
 	return new SoapyPlutoSDR(args);
 }
 
-static SoapySDR::Registry register_plutosdr("plutosdr", &find_PlutoSDR, &make_PlutoSDR, SOAPY_SDR_ABI_VERSION);
+static SoapySDR::Registry register_plutosdr("tezuka", &find_PlutoSDR, &make_PlutoSDR, SOAPY_SDR_ABI_VERSION);

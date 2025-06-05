@@ -14,12 +14,13 @@ SoapyPlutoSDR::SoapyPlutoSDR( const SoapySDR::Kwargs &args ):
 
 	if (args.count("label") != 0)
 		SoapySDR_logf( SOAPY_SDR_INFO, "Opening %s...", args.at("label").c_str());
-
+	fprintf(stderr,"Using URI %s\n",args.at("uri").c_str());
 	if(ctx == nullptr)
 	{
 	  if(args.count("uri") != 0) {
 
 		  ctx = iio_create_context_from_uri(args.at("uri").c_str());
+		  fprintf(stderr,"Using URI %s\n",args.at("uri").c_str());
 
 	  }else if(args.count("hostname")!=0){
 		  ctx = iio_create_network_context(args.at("hostname").c_str());
@@ -59,8 +60,11 @@ SoapyPlutoSDR::SoapyPlutoSDR( const SoapySDR::Kwargs &args ):
 		{
 			fprintf(stderr,"Standard firmware\n");
 			UseExtendedTezukaFeatures=false;
-		}	
-				
+		}
+		if(UseExtendedTezukaFeatures && (args.count("tezuka_format") != 0) && strncmp(args.at("tezuka_format").c_str(),"CS8",strlen("CS8"))==0)
+			UseExtendedTezukaFeatures=true;
+		else
+			UseExtendedTezukaFeatures=false;		
 	
 	}	
 }
@@ -480,7 +484,7 @@ double SoapyPlutoSDR::getGain( const int direction, const size_t channel, const 
 SoapySDR::Range SoapyPlutoSDR::getGainRange( const int direction, const size_t channel, const std::string &name ) const
 {
 	if(direction==SOAPY_SDR_RX)
-		return(SoapySDR::Range(0, 73));
+		return(SoapySDR::Range(0, 71));
 	return(SoapySDR::Range(0,89));
 
 }
@@ -549,7 +553,7 @@ std::vector<std::string> SoapyPlutoSDR::listFrequencies( const int direction, co
 
 SoapySDR::RangeList SoapyPlutoSDR::getFrequencyRange( const int direction, const size_t channel, const std::string &name ) const
 {
-	return(SoapySDR::RangeList( 1, SoapySDR::Range( 70000000, 6000000000ull ) ) );
+	return(SoapySDR::RangeList( 1, SoapySDR::Range( 46000000, 6000000000ull ) ) );
 
 }
 
@@ -648,6 +652,9 @@ std::vector<double> SoapyPlutoSDR::listSampleRates( const int direction, const s
 {
 	std::vector<double> options;
 
+	for(int i=0;i<61;i++)
+		options.push_back(i*1e6);
+/*
 	options.push_back(65105);//25M/48/8+1
 	options.push_back(1e6);
 	options.push_back(2e6);
@@ -661,6 +668,7 @@ std::vector<double> SoapyPlutoSDR::listSampleRates( const int direction, const s
 	options.push_back(10e6);
 	options.push_back(12e6);
 	options.push_back(15e6);
+	options.push_back(50e6);*/
 	return(options);
 
 }
@@ -725,6 +733,9 @@ std::vector<double> SoapyPlutoSDR::listBandwidths( const int direction, const si
 {
 	std::vector<double> options;
 	//options.push_back(0.2e6);
+	for(int i=0;i<56;i++)
+		options.push_back(i*1e6);
+		/*
 	options.push_back(1e6);
 	options.push_back(2e6);
 	options.push_back(3e6);
@@ -737,6 +748,7 @@ std::vector<double> SoapyPlutoSDR::listBandwidths( const int direction, const si
 	options.push_back(10e6);
 	options.push_back(12e6);
 	options.push_back(15e6);
+	*/
 	return(options);
 
 }
