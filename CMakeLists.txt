@@ -82,7 +82,7 @@ endif()
 
 
 SOAPY_SDR_MODULE_UTIL(
-    TARGET TezukaSupport
+    TARGET PlutoPAPRSupport
     SOURCES
     PlutoSDR_Registration.cpp
     PlutoSDR_Settings.cpp

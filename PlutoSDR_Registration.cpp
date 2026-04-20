@@ -91,9 +91,9 @@ static std::vector<SoapySDR::Kwargs> find_PlutoSDR(const SoapySDR::Kwargs &args)
 			continue;
 		}
 
-		if (args.count("tezuka_format") != 0)
+		if (args.count("papr_format") != 0)
 		{
-			options["tezuka_format"]=args.at("tezuka_format"); //CS8 or CS16
+			options["papr_format"]=args.at("papr_format"); //CS8 or CS16
 		}
 
 		options["device"] = "PlutoSDR";
@@ -157,4 +157,4 @@ static SoapySDR::Device *make_PlutoSDR(const SoapySDR::Kwargs &args)
 	return new SoapyPlutoSDR(args);
 }
 
-static SoapySDR::Registry register_plutosdr("tezuka", &find_PlutoSDR, &make_PlutoSDR, SOAPY_SDR_ABI_VERSION);
+static SoapySDR::Registry register_plutosdr("plutoPAPR", &find_PlutoSDR, &make_PlutoSDR, SOAPY_SDR_ABI_VERSION);

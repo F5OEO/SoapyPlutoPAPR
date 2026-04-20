@@ -61,7 +61,7 @@ SoapyPlutoSDR::SoapyPlutoSDR( const SoapySDR::Kwargs &args ):
 			fprintf(stderr,"Standard firmware\n");
 			UseExtendedTezukaFeatures=false;
 		}
-		if(UseExtendedTezukaFeatures && (args.count("tezuka_format") != 0) && strncmp(args.at("tezuka_format").c_str(),"CS8",strlen("CS8"))==0)
+		if(UseExtendedTezukaFeatures && (args.count("papr_format") != 0) && strncmp(args.at("papr_format").c_str(),"CS8",strlen("CS8"))==0)
 			UseExtendedTezukaFeatures=true;
 		else
 			UseExtendedTezukaFeatures=false;		
