@@ -589,6 +589,13 @@ void SoapyPlutoSDR::setSampleRate( const int direction, const size_t channel, co
 
 		iio_channel_attr_write_longlong(iio_device_find_channel(dev, "voltage0", false),"sampling_frequency", samplerate);
 
+#ifdef HAS_AD9361_IIO
+		if(ad9361_set_bb_rate(dev,(unsigned long)samplerate))
+			SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to set BB rate.");
+#endif
+
+		// FPGA data port rate must be set AFTER ad9361_set_bb_rate() which
+		// reconfigures the entire decimation chain and resets the FPGA rate.
 		iio_channel_attr_write_longlong(iio_device_find_channel(rx_dev, "voltage0", false), "sampling_frequency", decimation?samplerate/8:samplerate);
 
 		if(rx_stream)
@@ -610,16 +617,17 @@ void SoapyPlutoSDR::setSampleRate( const int direction, const size_t channel, co
 			samplerate = samplerate * 8;
 		}
 
-
 		iio_channel_attr_write_longlong(iio_device_find_channel(dev, "voltage0", true),"sampling_frequency", samplerate);
+
+#ifdef HAS_AD9361_IIO
+		if(ad9361_set_bb_rate(dev,(unsigned long)samplerate))
+			SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to set BB rate.");
+#endif
+
+		// FPGA data port rate must be set AFTER ad9361_set_bb_rate()
 		iio_channel_attr_write_longlong(iio_device_find_channel(tx_dev, "voltage0", true), "sampling_frequency", interpolation?samplerate / 8:samplerate);
 
 	}
-
-#ifdef HAS_AD9361_IIO
-	if(ad9361_set_bb_rate(dev,(unsigned long)samplerate))
-		SoapySDR_logf(SOAPY_SDR_ERROR, "Unable to set BB rate.");	
-#endif
 
 }
 
